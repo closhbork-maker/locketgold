@@ -112,14 +112,14 @@ class QueueManager:
                         # Re-queue waiting or interrupted processing requests
                         if data["status"] == "waiting":
                             self.queue.put(client_id)
+                            print(f"Re-queued waiting request: {client_id}")
                         elif data["status"] == "processing":
                             # Reset status to waiting if it was interrupted
                             data["status"] = "waiting"
                             data["started_at"] = None
-                            self.client_requests[client_id] = (
-                                data  # Update modified data
-                            )
+                            self.client_requests[client_id] = data
                             self.queue.put(client_id)
+                            print(f"Re-queued interrupted request: {client_id}")
 
             print(f"Loaded {len(self.client_requests)} requests from state file")
         except Exception as e:
@@ -297,7 +297,7 @@ class QueueManager:
                     self.current_processing = None
 
     def _cleanup_old_requests(self):
-        """Remove completed/error requests older than 5 minutes"""
+        """Remove completed/error requests older than 10 minutes"""
         try:
             with self.lock:
                 current_time = datetime.now()
@@ -308,7 +308,7 @@ class QueueManager:
                         completed_at = data.get("completed_at")
                         if completed_at:
                             age = (current_time - completed_at).total_seconds()
-                            if age > 300:  # 5 minutes
+                            if age > 600:  # 10 minutes (increased from 5)
                                 to_remove.append(client_id)
 
                 for client_id in to_remove:
@@ -324,6 +324,9 @@ class QueueManager:
         """Process a single restore purchase request"""
         try:
             with self.lock:
+                if client_id not in self.client_requests:
+                    print(f"Client ID {client_id} disappeared during processing")
+                    return
                 username = self.client_requests[client_id]["username"]
 
             print(f"Processing restore for: {username}")
@@ -380,11 +383,12 @@ class QueueManager:
                 )
 
                 with self.lock:
-                    self.client_requests[client_id]["status"] = "completed"
-                    self.client_requests[client_id]["result"] = {
-                        "success": True,
-                        "msg": f"Purchase {gold_entitlement.get('product_identifier')} for {username} successfully!",
-                    }
+                    if client_id in self.client_requests:
+                        self.client_requests[client_id]["status"] = "completed"
+                        self.client_requests[client_id]["result"] = {
+                            "success": True,
+                            "msg": f"Purchase {gold_entitlement.get('product_identifier')} for {username} successfully!",
+                        }
             else:
                 raise Exception(
                     f"Restore purchase failed. Gold entitlement not found for {username}."
@@ -393,8 +397,9 @@ class QueueManager:
         except Exception as e:
             print(f"Error processing request for {client_id}: {e}")
             with self.lock:
-                self.client_requests[client_id]["status"] = "error"
-                self.client_requests[client_id]["error"] = str(e)
+                if client_id in self.client_requests:
+                    self.client_requests[client_id]["status"] = "error"
+                    self.client_requests[client_id]["error"] = str(e)
 
 
 # Initialize queue manager
