@@ -280,6 +280,10 @@ class QueueManager:
 
                 self.queue.task_done()
 
+                # Chờ 5 giây trước khi xử lý người tiếp theo để tránh lỗi API
+                print("Waiting 5 seconds before next request to ensure stability...")
+                time.sleep(5)
+
             except queue.Empty:
                 continue
             except Exception as e:
