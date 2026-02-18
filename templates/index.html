@@ -20,35 +20,6 @@
             --glass-border: 1px solid rgba(255, 215, 0, 0.15);
         }
 
-        /* reCAPTCHA Status Widget */
-        #captchaStatus {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 11px;
-            color: #fff;
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            backdrop-filter: blur(4px);
-            pointer-events: none;
-            transition: all 0.3s ease;
-        }
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #666;
-        }
-        .status-dot.loading { background: #ffcc00; animation: pulse 1s infinite; }
-        .status-dot.ready { background: #00ff00; }
-        .status-dot.error { background: #ff0000; }
-
         body {
             font-family: 'Outfit', sans-serif;
             background-color: var(--bg-color);
@@ -645,19 +616,12 @@
         </p>
     </footer>
 
+    <script src="https://www.google.com/recaptcha/api.js?render=6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765v"></script>
+
     <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <!-- Google reCAPTCHA v3 -->
-    <script src="https://www.google.com/recaptcha/api.js?render=6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns"></script>
-
-    <div id="captchaStatus">
-        <div class="status-dot" id="captchaDot"></div>
-        <span id="captchaText">reCAPTCHA: Loading...</span>
-    </div>
-
     <script>
         let currentUserData = null;
-        const RECAPTCHA_SITE_KEY = '6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns';
 
         const swalGlassParams = {
             background: 'transparent', // Handled by CSS
@@ -668,23 +632,6 @@
             },
             buttonsStyling: false
         };
-
-        /**
-         * Get reCAPTCHA token programmatically
-         */
-        function getRecaptchaToken(action) {
-            return new Promise((resolve, reject) => {
-                if (typeof grecaptcha === 'undefined') {
-                    reject(new Error('reCAPTCHA not loaded'));
-                    return;
-                }
-                grecaptcha.ready(() => {
-                    grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: action })
-                        .then(resolve)
-                        .catch(reject);
-                });
-            });
-        }
 
         async function checkUserInfo() {
             const usernameInput = document.getElementById('username');
@@ -710,10 +657,15 @@
             btnText.style.display = 'none';
 
             try {
-                // 1. Get captcha token
-                const captchaToken = await getRecaptchaToken('check_user');
+                // Execute reCAPTCHA v3
+                const recaptchaToken = await new Promise((resolve, reject) => {
+                    grecaptcha.ready(() => {
+                        grecaptcha.execute('6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765v', { action: 'check_user_info' })
+                            .then(resolve)
+                            .catch(reject);
+                    });
+                });
 
-                // 2. Send request with captcha token
                 const response = await fetch('/api/get-user-info', {
                     method: 'POST',
                     headers: {
@@ -721,7 +673,7 @@
                     },
                     body: JSON.stringify({ 
                         username: username,
-                        recaptcha_token: captchaToken
+                        recaptcha_token: recaptchaToken
                     }),
                 });
 
@@ -736,6 +688,7 @@
                         title: 'User Not Found',
                         text: data.msg || "Could not find user with this username",
                         ...swalGlassParams,
+                        confirmButtonColor: undefined, // Override if needed or rely on class
                         confirmButtonText: 'Close'
                     });
                 }
@@ -743,8 +696,8 @@
                 console.error('Error:', error);
                 Swal.fire({
                     icon: 'error',
-                    title: 'Error',
-                    text: error.message || 'Failed to connect to the server.',
+                    title: 'Connection Error',
+                    text: 'Failed to connect to the server. Please check your internet.',
                     ...swalGlassParams,
                     confirmButtonText: 'Close'
                 });
@@ -790,19 +743,13 @@
 
         async function restorePurchase(username) {
             try {
-                // 1. Get captcha token
-                const captchaToken = await getRecaptchaToken('restore_purchase');
-
-                // 2. Join queue
+                // Join queue
                 const response = await fetch('/api/restore', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ 
-                        username: username,
-                        recaptcha_token: captchaToken
-                    }),
+                    body: JSON.stringify({ username: username }),
                 });
 
                 const data = await response.json();
@@ -824,7 +771,7 @@
                 Swal.fire({
                     icon: 'error',
                     title: 'Connection Error',
-                    text: 'Failed to connect to the server.',
+                    text: 'Failed to connect to the server. Please check your internet.',
                     ...swalGlassParams,
                     confirmButtonText: 'Close'
                 });
