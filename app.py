@@ -15,6 +15,9 @@ app = Flask(__name__)
 
 dotenv.load_dotenv()
 
+# reCAPTCHA Secret Key
+RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
+
 # Initialize API and Auth
 subscription_ids = [
     "locket_1600_1y",
@@ -385,6 +388,39 @@ def refresh_api_token():
         return False
 
 
+def verify_recaptcha(token):
+    """Verify reCAPTCHA token with Google API"""
+    if not RECAPTCHA_SECRET_KEY:
+        print("Warning: RECAPTCHA_SECRET_KEY not set in environment")
+        return False
+
+    try:
+        response = requests.post(
+            'https://www.google.com/recaptcha/api/siteverify',
+            data={
+                'secret': RECAPTCHA_SECRET_KEY,
+                'response': token
+            },
+            timeout=5
+        )
+
+        result = response.json()
+
+        # Check if verification was successful and score is acceptable (for v3)
+        if result.get('success'):
+            score = result.get('score', 0)
+            print(f"reCAPTCHA verification successful. Score: {score}")
+            # For v3, score ranges from 0.0 to 1.0 (1.0 is very likely a good interaction)
+            return score >= 0.5  # Adjust threshold as needed
+        else:
+            print(f"reCAPTCHA verification failed: {result.get('error-codes')}")
+            return False
+
+    except Exception as e:
+        print(f"Error verifying reCAPTCHA: {e}")
+        return False
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -399,9 +435,17 @@ def get_user_info():
 
     data = request.json
     username = data.get("username")
+    recaptcha_token = data.get("recaptcha_token")
 
     if not username:
         return jsonify({"success": False, "msg": "Username is required"}), 400
+
+    # Verify reCAPTCHA
+    if not recaptcha_token:
+        return jsonify({"success": False, "msg": "reCAPTCHA token is required"}), 400
+
+    if not verify_recaptcha(recaptcha_token):
+        return jsonify({"success": False, "msg": "reCAPTCHA verification failed"}), 403
 
     try:
         # User lookup
