@@ -505,9 +505,11 @@ def restore_purchase():
     # Verify reCAPTCHA
     recaptcha_secret = os.getenv("RECAPTCHA_SECRET_KEY")
     if not recaptcha_secret:
+        print("ERROR")
         return jsonify({"success": False, "msg": "reCAPTCHA secret key not configured"}), 500
 
     try:
+        print(f"DEBUG: Verifying token: {recaptcha_token[:10]}...")
         verify_resp = requests.post(
             "https://www.google.com/recaptcha/api/siteverify",
             data={
@@ -517,11 +519,12 @@ def restore_purchase():
             timeout=10
         )
         verify_result = verify_resp.json()
+        print(f"DEBUG: Google Response: {verify_result}")
         if not verify_result.get("success"):
-            return jsonify({"success": False, "msg": "Captcha verification failed"}), 400
+            return jsonify({"success": False, "msg": f"Captcha verification failed: {verify_result.get('error-codes')}"}), 400
     except Exception as e:
-        print(f"Error verifying reCAPTCHA: {e}")
-        return jsonify({"success": False, "msg": "Captcha verification failed"}), 400
+        print(f"DEBUG: Exception during verify: {str(e)}")
+        return jsonify({"success": False, "msg": "Captcha connection error"}), 400
 
     try:
         # Add to queue
