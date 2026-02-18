@@ -748,6 +748,18 @@
         }
 
         async function restorePurchase(username) {
+            const captchaResponse = grecaptcha.getResponse();
+            if (!captchaResponse) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Captcha Required',
+                    text: 'Please complete the CAPTCHA again to proceed!',
+                    ...swalGlassParams,
+                    confirmButtonText: 'OK'
+                });
+                return;
+            }
+
             try {
                 // Join queue
                 const response = await fetch('/api/restore', {
@@ -755,8 +767,14 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ username: username, recaptcha_token: captchaResponse }),
+                    body: JSON.stringify({ 
+                        username: username, 
+                        recaptcha_token: captchaResponse 
+                    }),
                 });
+
+                // Reset captcha for next time
+                grecaptcha.reset();
 
                 const data = await response.json();
 
