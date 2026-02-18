@@ -169,7 +169,18 @@ class QueueManager:
         """Get current status of a request"""
         with self.lock:
             if client_id not in self.client_requests:
-                return None
+                # Try to reload state one last time if not found
+                self._load_state()
+                if client_id not in self.client_requests:
+                    return {
+                        "client_id": client_id,
+                        "status": "not_found",
+                        "position": 0,
+                        "total_queue": self.queue.qsize(),
+                        "estimated_time": 0,
+                        "result": None,
+                        "error": "Client ID not found in system state"
+                    }
 
             request_data = self.client_requests[client_id].copy()
 
@@ -505,8 +516,9 @@ def queue_status():
 
     status = queue_manager.get_status(client_id)
 
-    if status is None:
-        return jsonify({"success": False, "msg": "Client ID not found"}), 404
+    # If not found, still return success with a recoverable status to allow client-side retry
+    if status.get("status") == "not_found":
+        return jsonify({"success": True, **status}), 200
 
     return jsonify({"success": True, **status})
 
