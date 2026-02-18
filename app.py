@@ -399,9 +399,30 @@ def get_user_info():
 
     data = request.json
     username = data.get("username")
+    recaptcha_token = data.get("recaptcha_token")
 
     if not username:
         return jsonify({"success": False, "msg": "Username is required"}), 400
+
+    recaptcha_secret = os.getenv("RECAPTCHA_SECRET_KEY")
+    if not recaptcha_secret:
+        return jsonify({"success": False, "msg": "reCAPTCHA secret key not configured"}), 500
+
+    if not recaptcha_token:
+        return jsonify({"success": False, "msg": "Captcha verification failed"}), 400
+
+    try:
+        verify_resp = requests.post(
+            "https://www.google.com/recaptcha/api/siteverify",
+            data={"secret": recaptcha_secret, "response": recaptcha_token},
+            timeout=10,
+        )
+        verify_data = verify_resp.json()
+        if not verify_data.get("success"):
+            return jsonify({"success": False, "msg": "Captcha verification failed"}), 400
+    except Exception as e:
+        print(f"Error verifying reCAPTCHA: {e}")
+        return jsonify({"success": False, "msg": "Captcha verification failed"}), 400
 
     try:
         # User lookup
@@ -476,9 +497,31 @@ def restore_purchase():
 
     data = request.json
     username = data.get("username")
+    recaptcha_token = data.get("recaptcha_token")
 
     if not username:
         return jsonify({"success": False, "msg": "Username is required"}), 400
+
+    # Verify reCAPTCHA
+    recaptcha_secret = os.getenv("RECAPTCHA_SECRET_KEY")
+    if not recaptcha_secret:
+        return jsonify({"success": False, "msg": "reCAPTCHA secret key not configured"}), 500
+
+    try:
+        verify_resp = requests.post(
+            "https://www.google.com/recaptcha/api/siteverify",
+            data={
+                "secret": recaptcha_secret,
+                "response": recaptcha_token
+            },
+            timeout=10
+        )
+        verify_result = verify_resp.json()
+        if not verify_result.get("success"):
+            return jsonify({"success": False, "msg": "Captcha verification failed"}), 400
+    except Exception as e:
+        print(f"Error verifying reCAPTCHA: {e}")
+        return jsonify({"success": False, "msg": "Captcha verification failed"}), 400
 
     try:
         # Add to queue
