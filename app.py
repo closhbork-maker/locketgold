@@ -10,7 +10,13 @@ import uuid
 from datetime import datetime
 import dotenv
 import os
-import fcntl
+
+# Try to import fcntl (Unix/Linux only)
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 import tempfile
 
 app = Flask(__name__)
@@ -107,7 +113,7 @@ class QueueManager:
                 with open(QUEUE_STATE_FILE, "r") as f:
                     # Try to acquire shared lock for reading (non-blocking on Windows)
                     try:
-                        if hasattr(fcntl, 'flock'):
+                        if fcntl and hasattr(fcntl, 'flock'):
                             fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
                     except (IOError, AttributeError):
                         # File locking not available or file is locked, retry
@@ -121,7 +127,7 @@ class QueueManager:
 
                     # Release lock
                     try:
-                        if hasattr(fcntl, 'flock'):
+                        if fcntl and hasattr(fcntl, 'flock'):
                             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     except (IOError, AttributeError):
                         pass
@@ -515,6 +521,37 @@ def verify_recaptcha(token):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/detect-language", methods=["GET"])
+def detect_language():
+    """Detect user's country from IP address and return appropriate language"""
+    try:
+        # Get client IP address
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+
+        # Use ip-api.com for geolocation (free, no API key required)
+        response = requests.get(f'http://ip-api.com/json/{client_ip}', timeout=3)
+
+        if response.ok:
+            data = response.json()
+            country_code = data.get('countryCode', '')
+
+            # Return Vietnamese for Vietnam, English for others
+            if country_code == 'VN':
+                return jsonify({"success": True, "language": "vi", "country": country_code})
+            else:
+                return jsonify({"success": True, "language": "en", "country": country_code})
+        else:
+            # Default to English if geolocation fails
+            return jsonify({"success": True, "language": "en", "country": "unknown"})
+
+    except Exception as e:
+        print(f"Error detecting language: {e}")
+        # Default to English on error
+        return jsonify({"success": True, "language": "en", "country": "unknown"})
 
 
 @app.route("/api/get-user-info", methods=["POST"])
