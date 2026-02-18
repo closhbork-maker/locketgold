@@ -20,6 +20,35 @@
             --glass-border: 1px solid rgba(255, 215, 0, 0.15);
         }
 
+        /* reCAPTCHA Status Widget */
+        #captchaStatus {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #fff;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(4px);
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+        }
+        .status-dot.loading { background: #ffcc00; animation: pulse 1s infinite; }
+        .status-dot.ready { background: #00ff00; }
+        .status-dot.error { background: #ff0000; }
+
         body {
             font-family: 'Outfit', sans-serif;
             background-color: var(--bg-color);
@@ -620,6 +649,12 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- Google reCAPTCHA v3 -->
     <script src="https://www.google.com/recaptcha/api.js?render=6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns"></script>
+
+    <div id="captchaStatus">
+        <div class="status-dot" id="captchaDot"></div>
+        <span id="captchaText">reCAPTCHA: Loading...</span>
+    </div>
+
     <script>
         let currentUserData = null;
         const RECAPTCHA_SITE_KEY = '6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns';
