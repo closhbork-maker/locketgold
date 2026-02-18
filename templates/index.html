@@ -619,7 +619,7 @@
     <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <!-- Google reCAPTCHA v3 -->
-    <script src="https://www.google.com/recaptcha/api.js?render=6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765"></script>
+    <script src="https://www.google.com/recaptcha/api.js?render=6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765v"></script>
     <script>
         let currentUserData = null;
 
@@ -658,7 +658,23 @@
 
             try {
                 // Get reCAPTCHA token
-                const recaptchaToken = await grecaptcha.execute('6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765', { action: 'check_user_info' });
+                let recaptchaToken;
+                try {
+                    recaptchaToken = await grecaptcha.execute('6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765v', { action: 'check_user_info' });
+                } catch (recaptchaError) {
+                    console.error('reCAPTCHA error:', recaptchaError);
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Verification Error',
+                        text: 'Failed to load reCAPTCHA. Please refresh the page and try again.',
+                        ...swalGlassParams,
+                        confirmButtonText: 'OK'
+                    });
+                    btn.disabled = false;
+                    loader.style.display = 'none';
+                    btnText.style.display = 'inline-block';
+                    return;
+                }
 
                 const response = await fetch('/api/get-user-info', {
                     method: 'POST',
