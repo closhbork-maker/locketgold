@@ -824,6 +824,13 @@
                 const data = await response.json();
 
                 if (response.ok && data.success) {
+                    if (data.status === 'not_found') {
+                        // Handle missing client ID gracefully by retrying
+                        const statusEl = document.getElementById('queueStatusText');
+                        if (statusEl) statusEl.textContent = 'Reconnecting to queue...';
+                        pollInterval = setTimeout(() => pollQueueStatus(clientId, username), 2000);
+                        return;
+                    }
                     updateQueueUI(data, username);
 
                     // Check if completed or error
