@@ -618,8 +618,11 @@
 
     <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Google reCAPTCHA v3 -->
+    <script src="https://www.google.com/recaptcha/api.js?render=6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns"></script>
     <script>
         let currentUserData = null;
+        const RECAPTCHA_SITE_KEY = '6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns';
 
         const swalGlassParams = {
             background: 'transparent', // Handled by CSS
@@ -630,6 +633,23 @@
             },
             buttonsStyling: false
         };
+
+        /**
+         * Get reCAPTCHA token programmatically
+         */
+        function getRecaptchaToken(action) {
+            return new Promise((resolve, reject) => {
+                if (typeof grecaptcha === 'undefined') {
+                    reject(new Error('reCAPTCHA not loaded'));
+                    return;
+                }
+                grecaptcha.ready(() => {
+                    grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: action })
+                        .then(resolve)
+                        .catch(reject);
+                });
+            });
+        }
 
         async function checkUserInfo() {
             const usernameInput = document.getElementById('username');
@@ -655,12 +675,19 @@
             btnText.style.display = 'none';
 
             try {
+                // 1. Get captcha token
+                const captchaToken = await getRecaptchaToken('check_user');
+
+                // 2. Send request with captcha token
                 const response = await fetch('/api/get-user-info', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ username: username }),
+                    body: JSON.stringify({ 
+                        username: username,
+                        recaptcha_token: captchaToken
+                    }),
                 });
 
                 const data = await response.json();
@@ -674,7 +701,6 @@
                         title: 'User Not Found',
                         text: data.msg || "Could not find user with this username",
                         ...swalGlassParams,
-                        confirmButtonColor: undefined, // Override if needed or rely on class
                         confirmButtonText: 'Close'
                     });
                 }
@@ -682,8 +708,8 @@
                 console.error('Error:', error);
                 Swal.fire({
                     icon: 'error',
-                    title: 'Connection Error',
-                    text: 'Failed to connect to the server. Please check your internet.',
+                    title: 'Error',
+                    text: error.message || 'Failed to connect to the server.',
                     ...swalGlassParams,
                     confirmButtonText: 'Close'
                 });
@@ -729,13 +755,19 @@
 
         async function restorePurchase(username) {
             try {
-                // Join queue
+                // 1. Get captcha token
+                const captchaToken = await getRecaptchaToken('restore_purchase');
+
+                // 2. Join queue
                 const response = await fetch('/api/restore', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ username: username }),
+                    body: JSON.stringify({ 
+                        username: username,
+                        recaptcha_token: captchaToken
+                    }),
                 });
 
                 const data = await response.json();
@@ -757,7 +789,7 @@
                 Swal.fire({
                     icon: 'error',
                     title: 'Connection Error',
-                    text: 'Failed to connect to the server. Please check your internet.',
+                    text: 'Failed to connect to the server.',
                     ...swalGlassParams,
                     confirmButtonText: 'Close'
                 });
