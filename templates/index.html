@@ -618,6 +618,8 @@
 
     <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Google reCAPTCHA v3 -->
+    <script src="https://www.google.com/recaptcha/api.js?render=6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765"></script>
     <script>
         let currentUserData = null;
 
@@ -655,12 +657,18 @@
             btnText.style.display = 'none';
 
             try {
+                // Get reCAPTCHA token
+                const recaptchaToken = await grecaptcha.execute('6Ld2728sAAAAAKaeUSRlumF9Odma8q3S4Ns-765', { action: 'check_user_info' });
+
                 const response = await fetch('/api/get-user-info', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ username: username }),
+                    body: JSON.stringify({
+                        username: username,
+                        recaptcha_token: recaptchaToken
+                    }),
                 });
 
                 const data = await response.json();
@@ -671,7 +679,7 @@
                 } else {
                     Swal.fire({
                         icon: 'error',
-                        title: 'User Not Found',
+                        title: data.msg === 'reCAPTCHA verification failed' ? 'Verification Failed' : 'User Not Found',
                         text: data.msg || "Could not find user with this username",
                         ...swalGlassParams,
                         confirmButtonColor: undefined, // Override if needed or rely on class
