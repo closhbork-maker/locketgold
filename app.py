@@ -69,7 +69,8 @@ class QueueManager:
                     state["client_requests"][client_id] = req_data
 
             with open("queue_state.json", "w") as f:
-                json.dump(state, f)
+                json.dump(state, f, indent=2)
+            print(f"Queue state saved: {len(state['client_requests'])} requests")
         except Exception as e:
             print(f"Error saving queue state: {e}")
 
@@ -139,8 +140,8 @@ class QueueManager:
 
         with self.lock:
             self.client_requests[client_id] = request_data
+            self.queue.put(client_id)
 
-        self.queue.put(client_id)
         print(f"Added {username} to queue with client_id: {client_id}")
         self._save_state()
         return client_id
@@ -172,18 +173,16 @@ class QueueManager:
         """Get current status of a request"""
         with self.lock:
             if client_id not in self.client_requests:
-                # Try to reload state one last time if not found
-                self._load_state()
-                if client_id not in self.client_requests:
-                    return {
-                        "client_id": client_id,
-                        "status": "not_found",
-                        "position": 0,
-                        "total_queue": self.queue.qsize(),
-                        "estimated_time": 0,
-                        "result": None,
-                        "error": "Client ID not found in system state"
-                    }
+                print(f"Client ID {client_id} not found in queue")
+                return {
+                    "client_id": client_id,
+                    "status": "not_found",
+                    "position": 0,
+                    "total_queue": self.queue.qsize(),
+                    "estimated_time": 0,
+                    "result": None,
+                    "error": "Request not found. It may have been completed or expired."
+                }
 
             request_data = self.client_requests[client_id].copy()
 
@@ -281,6 +280,9 @@ class QueueManager:
                 # Save state when processing completes
                 self._save_state()
 
+                # Clean up old completed requests (older than 5 minutes)
+                self._cleanup_old_requests()
+
                 self.queue.task_done()
 
                 # Chờ 5 giây trước khi xử lý người tiếp theo để tránh lỗi API
@@ -293,6 +295,30 @@ class QueueManager:
                 print(f"Error in queue processing: {e}")
                 with self.lock:
                     self.current_processing = None
+
+    def _cleanup_old_requests(self):
+        """Remove completed/error requests older than 5 minutes"""
+        try:
+            with self.lock:
+                current_time = datetime.now()
+                to_remove = []
+
+                for client_id, data in self.client_requests.items():
+                    if data["status"] in ["completed", "error"]:
+                        completed_at = data.get("completed_at")
+                        if completed_at:
+                            age = (current_time - completed_at).total_seconds()
+                            if age > 300:  # 5 minutes
+                                to_remove.append(client_id)
+
+                for client_id in to_remove:
+                    del self.client_requests[client_id]
+                    print(f"Cleaned up old request: {client_id}")
+
+                if to_remove:
+                    self._save_state()
+        except Exception as e:
+            print(f"Error cleaning up old requests: {e}")
 
     def _process_request(self, client_id):
         """Process a single restore purchase request"""
