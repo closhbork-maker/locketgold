@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime
 import dotenv
 import os
+import fcntl
+import tempfile
 
 app = Flask(__name__)
 
@@ -17,6 +19,9 @@ dotenv.load_dotenv()
 
 # reCAPTCHA Secret Key
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
+
+# Queue state file path
+QUEUE_STATE_FILE = "queue_state.json"
 
 # Initialize API and Auth
 subscription_ids = [
@@ -52,7 +57,7 @@ class QueueManager:
         print("Queue manager initialized and worker thread started")
 
     def _save_state(self):
-        """Save current queue state to file"""
+        """Save current queue state to file with atomic write"""
         try:
             state = {"client_requests": {}, "processing_times": self.processing_times}
 
@@ -68,62 +73,112 @@ class QueueManager:
                         req_data["completed_at"] = req_data["completed_at"].isoformat()
                     state["client_requests"][client_id] = req_data
 
-            with open("queue_state.json", "w") as f:
-                json.dump(state, f, indent=2)
-            print(f"Queue state saved: {len(state['client_requests'])} requests")
+            # Atomic write: write to temp file then rename
+            temp_fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(QUEUE_STATE_FILE) or '.', suffix='.tmp')
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(state, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+
+                # Atomic rename
+                os.replace(temp_path, QUEUE_STATE_FILE)
+                print(f"Queue state saved: {len(state['client_requests'])} requests")
+            except Exception as e:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+                raise e
         except Exception as e:
             print(f"Error saving queue state: {e}")
 
     def _load_state(self):
-        """Load queue state from file"""
-        if not os.path.exists("queue_state.json"):
+        """Load queue state from file with file locking"""
+        if not os.path.exists(QUEUE_STATE_FILE):
             return
 
-        try:
-            with open("queue_state.json", "r") as f:
-                state = json.load(f)
+        max_retries = 3
+        retry_delay = 0.1
 
-            if "processing_times" in state:
-                self.processing_times = state["processing_times"]
+        for attempt in range(max_retries):
+            try:
+                with open(QUEUE_STATE_FILE, "r") as f:
+                    # Try to acquire shared lock for reading (non-blocking on Windows)
+                    try:
+                        if hasattr(fcntl, 'flock'):
+                            fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    except (IOError, AttributeError):
+                        # File locking not available or file is locked, retry
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                            continue
+                        # Last attempt, try without lock
+                        pass
 
-            if "client_requests" in state:
-                with self.lock:
-                    loaded_requests = []
-                    for client_id, data in state["client_requests"].items():
-                        # Convert ISO strings back to datetime
-                        if data.get("added_at"):
-                            data["added_at"] = datetime.fromisoformat(data["added_at"])
-                        if data.get("started_at"):
-                            data["started_at"] = datetime.fromisoformat(
-                                data["started_at"]
-                            )
-                        if data.get("completed_at"):
-                            data["completed_at"] = datetime.fromisoformat(
-                                data["completed_at"]
-                            )
+                    state = json.load(f)
 
-                        self.client_requests[client_id] = data
-                        loaded_requests.append((client_id, data))
+                    # Release lock
+                    try:
+                        if hasattr(fcntl, 'flock'):
+                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    except (IOError, AttributeError):
+                        pass
 
-                    # Sort by added_at to ensure FIFO order
-                    loaded_requests.sort(key=lambda x: x[1]["added_at"])
+                if "processing_times" in state:
+                    self.processing_times = state["processing_times"]
 
-                    for client_id, data in loaded_requests:
-                        # Re-queue waiting or interrupted processing requests
-                        if data["status"] == "waiting":
-                            self.queue.put(client_id)
-                            print(f"Re-queued waiting request: {client_id}")
-                        elif data["status"] == "processing":
-                            # Reset status to waiting if it was interrupted
-                            data["status"] = "waiting"
-                            data["started_at"] = None
+                if "client_requests" in state:
+                    with self.lock:
+                        loaded_requests = []
+                        for client_id, data in state["client_requests"].items():
+                            # Convert ISO strings back to datetime
+                            if data.get("added_at"):
+                                data["added_at"] = datetime.fromisoformat(data["added_at"])
+                            if data.get("started_at"):
+                                data["started_at"] = datetime.fromisoformat(
+                                    data["started_at"]
+                                )
+                            if data.get("completed_at"):
+                                data["completed_at"] = datetime.fromisoformat(
+                                    data["completed_at"]
+                                )
+
                             self.client_requests[client_id] = data
-                            self.queue.put(client_id)
-                            print(f"Re-queued interrupted request: {client_id}")
+                            loaded_requests.append((client_id, data))
 
-            print(f"Loaded {len(self.client_requests)} requests from state file")
-        except Exception as e:
-            print(f"Error loading queue state: {e}")
+                        # Sort by added_at to ensure FIFO order
+                        loaded_requests.sort(key=lambda x: x[1]["added_at"])
+
+                        for client_id, data in loaded_requests:
+                            # Re-queue waiting or interrupted processing requests
+                            if data["status"] == "waiting":
+                                self.queue.put(client_id)
+                                print(f"Re-queued waiting request: {client_id}")
+                            elif data["status"] == "processing":
+                                # Reset status to waiting if it was interrupted
+                                data["status"] = "waiting"
+                                data["started_at"] = None
+                                self.client_requests[client_id] = data
+                                self.queue.put(client_id)
+                                print(f"Re-queued interrupted request: {client_id}")
+
+                print(f"Loaded {len(self.client_requests)} requests from state file")
+                break  # Success, exit retry loop
+
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                print("Failed to load state after all retries")
+            except Exception as e:
+                print(f"Error loading queue state (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                print("Failed to load state after all retries")
 
     def add_to_queue(self, username):
         """Add a request to the queue and return client_id"""
@@ -171,9 +226,14 @@ class QueueManager:
 
     def get_status(self, client_id):
         """Get current status of a request"""
+        # Try to reload state from file if not in memory
+        if client_id not in self.client_requests:
+            print(f"Client ID {client_id} not in memory, reloading state...")
+            self._load_state()
+
         with self.lock:
             if client_id not in self.client_requests:
-                print(f"Client ID {client_id} not found in queue")
+                print(f"Client ID {client_id} not found in queue after reload")
                 return {
                     "client_id": client_id,
                     "status": "not_found",
