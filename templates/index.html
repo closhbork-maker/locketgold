@@ -792,11 +792,14 @@
         let countdownInterval = null;
         let currentEstimatedTime = 0;
         let lastPosition = null;
+        let pollRetryCount = 0;
+        const MAX_POLL_RETRIES = 3;
 
         function showQueueStatus(clientId, username) {
             // Reset state
             lastPosition = null;
             currentEstimatedTime = 0;
+            pollRetryCount = 0;
             if (pollInterval) clearTimeout(pollInterval);
             if (countdownInterval) clearInterval(countdownInterval);
             countdownInterval = null;
@@ -849,7 +852,15 @@
 
                 if (response.ok && data.success) {
                     if (data.status === 'not_found') {
-                        // Request not found - stop polling and show error
+                        // Retry a few times before giving up
+                        pollRetryCount++;
+                        if (pollRetryCount < MAX_POLL_RETRIES) {
+                            console.log(`Request not found, retry ${pollRetryCount}/${MAX_POLL_RETRIES}`);
+                            pollInterval = setTimeout(() => pollQueueStatus(clientId, username), 2000);
+                            return;
+                        }
+
+                        // Request not found after retries - stop polling and show error
                         clearInterval(pollInterval);
                         clearInterval(countdownInterval);
                         Swal.fire({
@@ -862,6 +873,9 @@
                         resetGlobalQueueUI();
                         return;
                     }
+
+                    // Reset retry count on successful status
+                    pollRetryCount = 0;
                     updateQueueUI(data, username);
 
                     // Check if completed or error
