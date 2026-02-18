@@ -142,6 +142,29 @@ class QueueManager:
         self._save_state()
         return client_id
 
+    def get_global_status(self):
+        """Get global queue status (not tied to any client)"""
+        with self.lock:
+            total_waiting = self.queue.qsize()
+            if self.current_processing:
+                total_waiting += 1
+
+            # Use average processing time or default to 5 seconds
+            avg_time = 5
+            if self.processing_times:
+                avg_time = sum(self.processing_times[-10:]) / len(
+                    self.processing_times[-10:]
+                )
+
+            estimated_time = int(total_waiting * avg_time)
+
+            return {
+                "status": "idle" if total_waiting == 0 else "active",
+                "total_queue": total_waiting,
+                "estimated_time": estimated_time,
+                "avg_processing_time": avg_time,
+            }
+
     def get_status(self, client_id):
         """Get current status of a request"""
         with self.lock:
@@ -462,6 +485,13 @@ def restore_purchase():
     except Exception as e:
         print(f"Error adding to queue: {e}")
         return jsonify({"success": False, "msg": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route("/api/queue/global-status", methods=["GET"])
+def global_queue_status():
+    """Get overall queue statistics for all users"""
+    status = queue_manager.get_global_status()
+    return jsonify({"success": True, **status})
 
 
 @app.route("/api/queue/status", methods=["POST"])
