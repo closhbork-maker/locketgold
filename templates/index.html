@@ -6,8 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Locket Gold Unlocker</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Google reCAPTCHA v2 -->
-    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
     <!-- SweetAlert2 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/@sweetalert2/theme-dark@4/dark.css" rel="stylesheet">
     <style>
@@ -533,15 +531,10 @@
                 <input type="text" id="username" placeholder="Enter Locket username..." required autocomplete="off">
             </div>
 
-            <div style="margin-bottom: 1rem; display: flex; justify-content: center;">
-                <div class="g-recaptcha" id="recaptchaWidget" data-sitekey="6Lf38m8sAAAAAKsEK0BmNcWsf0oHJFkS1HPA_hY4" data-theme="dark"></div>
-            </div>
-
             <button id="submitBtn" onclick="checkUserInfo()">
                 <span class="btn-text">Check User Info</span>
                 <div class="loader" id="loader"></div>
             </button>
-
         </div>
 
         <div class="instructions">
@@ -645,19 +638,6 @@
             const loader = document.getElementById('loader');
             const btnText = document.querySelector('.btn-text');
 
-            // Kiểm tra reCAPTCHA
-            const captchaResponse = grecaptcha.getResponse();
-            if (!captchaResponse) {
-                Swal.fire({
-                    icon: 'warning',
-                    title: 'Captcha Required',
-                    text: 'Please complete the CAPTCHA to proceed!',
-                    ...swalGlassParams,
-                    confirmButtonText: 'OK'
-                });
-                return;
-            }
-
             if (!username) {
                 Swal.fire({
                     icon: 'warning',
@@ -680,7 +660,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ username: username, recaptcha_token: captchaResponse }),
+                    body: JSON.stringify({ username: username }),
                 });
 
                 const data = await response.json();
@@ -757,9 +737,6 @@
                     },
                     body: JSON.stringify({ username: username }),
                 });
-
-                // Reset captcha after restore request is sent so the next run requires a fresh token
-                grecaptcha.reset();
 
                 const data = await response.json();
 
