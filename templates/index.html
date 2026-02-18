@@ -849,10 +849,17 @@
 
                 if (response.ok && data.success) {
                     if (data.status === 'not_found') {
-                        // Handle missing client ID gracefully by retrying
-                        const statusEl = document.getElementById('queueStatusText');
-                        if (statusEl) statusEl.textContent = 'Reconnecting to queue...';
-                        pollInterval = setTimeout(() => pollQueueStatus(clientId, username), 2000);
+                        // Request not found - stop polling and show error
+                        clearInterval(pollInterval);
+                        clearInterval(countdownInterval);
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Request Not Found',
+                            text: 'Your request could not be found. Please try again.',
+                            ...swalGlassParams,
+                            confirmButtonText: 'Close'
+                        });
+                        resetGlobalQueueUI();
                         return;
                     }
                     updateQueueUI(data, username);
@@ -882,12 +889,11 @@
                         ...swalGlassParams,
                         confirmButtonText: 'Close'
                     });
+                    resetGlobalQueueUI();
                 }
             } catch (error) {
                 console.error('Polling error:', error);
-                clearInterval(pollInterval);
-                clearInterval(countdownInterval);
-                // Retry after 2 seconds
+                // Retry after 2 seconds on network error
                 pollInterval = setTimeout(() => pollQueueStatus(clientId, username), 2000);
             }
         }
