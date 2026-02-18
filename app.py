@@ -11,47 +11,51 @@ from datetime import datetime
 import dotenv
 import os
 
-app = Flask(__name__)
 
-dotenv.load_dotenv()
-
-RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
-RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify"
-RECAPTCHA_MIN_SCORE = float(os.getenv("RECAPTCHA_MIN_SCORE", "0.5"))
-
-
-def verify_recaptcha(token: str, expected_action: str):
-    if not RECAPTCHA_SECRET_KEY:
-        return False, "RECAPTCHA_SECRET_KEY not configured", None
+def verify_recaptcha_v3(token: str, action: str, remoteip: str | None = None):
+    secret = os.getenv("RECAPTCHA_SECRET_KEY")
+    if not secret:
+        return False, "reCAPTCHA secret key missing", None
 
     if not token:
         return False, "Missing reCAPTCHA token", None
 
+    payload = {
+        "secret": secret,
+        "response": token,
+    }
+    if remoteip:
+        payload["remoteip"] = remoteip
+
     try:
         resp = requests.post(
-            RECAPTCHA_VERIFY_URL,
-            data={"secret": RECAPTCHA_SECRET_KEY, "response": token},
+            "https://www.google.com/recaptcha/api/siteverify",
+            data=payload,
             timeout=10,
         )
-        payload = resp.json()
-
-        if not payload.get("success"):
-            return False, "Invalid reCAPTCHA", payload
-
-        action = payload.get("action")
-        score = payload.get("score", 0)
-
-        if expected_action and action != expected_action:
-            return False, "reCAPTCHA action mismatch", payload
-
-        if score < RECAPTCHA_MIN_SCORE:
-            return False, "reCAPTCHA score too low", payload
-
-        return True, None, payload
-
+        data = resp.json()
     except Exception as e:
-        return False, f"reCAPTCHA verify error: {e}", None
+        return False, f"Failed to verify reCAPTCHA: {e}", None
 
+    if not data.get("success"):
+        return False, "reCAPTCHA verification failed", data
+
+    if data.get("action") != action:
+        return False, "reCAPTCHA action mismatch", data
+
+    score = data.get("score")
+    if score is None:
+        return False, "reCAPTCHA score missing", data
+
+    min_score = float(os.getenv("RECAPTCHA_MIN_SCORE", "0.5"))
+    if score < min_score:
+        return False, "reCAPTCHA score too low", data
+
+    return True, None, data
+
+app = Flask(__name__)
+
+dotenv.load_dotenv()
 
 # Initialize API and Auth
 subscription_ids = [
@@ -435,14 +439,26 @@ def get_user_info():
             {"success": False, "msg": "API not initialized. Check server logs."}
         ), 500
 
-    data = request.json
+    data = request.json or {}
     username = data.get("username")
     recaptcha_token = data.get("recaptcha_token")
 
-    # Verify reCAPTCHA
-    is_valid, error_msg, _ = verify_recaptcha(recaptcha_token, "check_user")
-    if not is_valid:
-        return jsonify({"success": False, "msg": error_msg}), 403
+    ok, err_msg, verify_data = verify_recaptcha_v3(
+        recaptcha_token,
+        action="check_user_info",
+        remoteip=request.remote_addr,
+    )
+    if not ok:
+        return jsonify(
+            {
+                "success": False,
+                "msg": err_msg,
+                "recaptcha": {
+                    "success": bool(verify_data.get("success")) if isinstance(verify_data, dict) else False,
+                    "score": verify_data.get("score") if isinstance(verify_data, dict) else None,
+                },
+            }
+        ), 403
 
     if not username:
         return jsonify({"success": False, "msg": "Username is required"}), 400
@@ -520,12 +536,6 @@ def restore_purchase():
 
     data = request.json
     username = data.get("username")
-    recaptcha_token = data.get("recaptcha_token")
-
-    # Verify reCAPTCHA
-    is_valid, error_msg, _ = verify_recaptcha(recaptcha_token, "restore_purchase")
-    if not is_valid:
-        return jsonify({"success": False, "msg": error_msg}), 403
 
     if not username:
         return jsonify({"success": False, "msg": "Username is required"}), 400
