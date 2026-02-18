@@ -15,6 +15,44 @@ app = Flask(__name__)
 
 dotenv.load_dotenv()
 
+RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
+RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify"
+RECAPTCHA_MIN_SCORE = float(os.getenv("RECAPTCHA_MIN_SCORE", "0.5"))
+
+
+def verify_recaptcha(token: str, expected_action: str):
+    if not RECAPTCHA_SECRET_KEY:
+        return False, "RECAPTCHA_SECRET_KEY not configured", None
+
+    if not token:
+        return False, "Missing reCAPTCHA token", None
+
+    try:
+        resp = requests.post(
+            RECAPTCHA_VERIFY_URL,
+            data={"secret": RECAPTCHA_SECRET_KEY, "response": token},
+            timeout=10,
+        )
+        payload = resp.json()
+
+        if not payload.get("success"):
+            return False, "Invalid reCAPTCHA", payload
+
+        action = payload.get("action")
+        score = payload.get("score", 0)
+
+        if expected_action and action != expected_action:
+            return False, "reCAPTCHA action mismatch", payload
+
+        if score < RECAPTCHA_MIN_SCORE:
+            return False, "reCAPTCHA score too low", payload
+
+        return True, None, payload
+
+    except Exception as e:
+        return False, f"reCAPTCHA verify error: {e}", None
+
+
 # Initialize API and Auth
 subscription_ids = [
     "locket_1600_1y",
@@ -399,6 +437,12 @@ def get_user_info():
 
     data = request.json
     username = data.get("username")
+    recaptcha_token = data.get("recaptcha_token")
+
+    # Verify reCAPTCHA
+    is_valid, error_msg, _ = verify_recaptcha(recaptcha_token, "check_user")
+    if not is_valid:
+        return jsonify({"success": False, "msg": error_msg}), 403
 
     if not username:
         return jsonify({"success": False, "msg": "Username is required"}), 400
@@ -476,6 +520,12 @@ def restore_purchase():
 
     data = request.json
     username = data.get("username")
+    recaptcha_token = data.get("recaptcha_token")
+
+    # Verify reCAPTCHA
+    is_valid, error_msg, _ = verify_recaptcha(recaptcha_token, "restore_purchase")
+    if not is_valid:
+        return jsonify({"success": False, "msg": error_msg}), 403
 
     if not username:
         return jsonify({"success": False, "msg": "Username is required"}), 400
